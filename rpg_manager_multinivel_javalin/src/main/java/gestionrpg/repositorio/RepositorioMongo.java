@@ -136,10 +136,24 @@ public class RepositorioMongo implements PersonajeRepository {
     @Override
     public Personaje guardar(Personaje p) {
         // >>> SALA 2.6 · MongoDB: guardar con contador
-        // Arma este bloque en el Edificio de la Persistencia (pestaña Java),
-        // pulsa «Copiar bloque» y pégalo entre estas dos marcas.
-        // <<< FIN SALA 2.6
+              if (personajes.find(eq("nombre", p.getNombre())).first() != null) {
+            throw new DatoDuplicadoException(p.getNombre(), null);
+        }
+        Document documento = camposDe(p)
+                .append("inventario", new ArrayList<Document>())
+                .append("misiones", new ArrayList<Document>())
+                .append("id_personaje", siguienteId());
+        try {
+            personajes.insertOne(documento);
+        } catch (MongoWriteException e) {
+            if (esDuplicado(e)) {
+                throw new DatoDuplicadoException(p.getNombre(), e);
+            }
+            throw e;
+        }
+            p.setId(documento.getInteger("id_personaje"));
         return p;
+        // <<< FIN SALA 2.6
     }
 
     @Override
@@ -208,8 +222,24 @@ public class RepositorioMongo implements PersonajeRepository {
     public boolean agregarItem(int idPersonaje, String nombreItem, int cantidad) {
         // 1. Si ya lo tiene: $inc sobre ese elemento del arreglo ($ = el que cumplió el filtro)
         // >>> SALA 2.8 · Inventario: agregar un ítem
-        // Arma este bloque en el Edificio de la Persistencia (pestaña Java),
-        // pulsa «Copiar bloque» y pégalo entre estas dos marcas.
+               long encontrados = personajes.updateOne(
+                and(eq("id_personaje", idPersonaje), eq("inventario.item", nombreItem)),
+                Updates.inc("inventario.$.cantidad", cantidad)).getMatchedCount();
+        if (encontrados > 0) {
+            return true;
+        }
+        // 2. Si no lo tiene: se copia del catálogo y se agrega al arreglo con $push
+        Document delCatalogo = items.find(eq("nombre", nombreItem)).first();
+        if (delCatalogo == null) {
+            return false;
+        }
+        Document nuevo = new Document("item", delCatalogo.getString("nombre"))
+                .append("tipo", delCatalogo.getString("tipo"))
+                .append("valor", numero(delCatalogo.get("valor"), 0))
+                .append("cantidad", cantidad);
+        return personajes.updateOne(eq("id_personaje", idPersonaje),
+                Updates.push("inventario", nuevo)).getMatchedCount() > 0;
+
         // <<< FIN SALA 2.8
     }
 

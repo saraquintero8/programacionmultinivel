@@ -93,8 +93,18 @@ class RepositorioMongo(PersonajeRepository):
 
     def guardar(self, personaje):
         # >>> SALA 2.6 · MongoDB: guardar con contador
-        # Arma este bloque en el Edificio de la Persistencia (pestaña Python),
-        # pulsa «Copiar bloque» y pégalo entre estas dos marcas.
+        documento = self._campos_de(personaje)
+        documento["inventario"] = []
+        documento["misiones"] = []
+        if self._personajes.find_one({"nombre": personaje.nombre}) is not None:
+            raise DatoDuplicadoException(personaje.nombre)
+        documento["id_personaje"] = self._siguiente_id()
+        try:
+            self._personajes.insert_one(documento)
+        except DuplicateKeyError as error:
+            raise DatoDuplicadoException(personaje.nombre) from error
+        personaje.id = documento["id_personaje"]
+        return personaje
         # <<< FIN SALA 2.6
 
     def buscar_por_id(self, id):
@@ -140,9 +150,11 @@ class RepositorioMongo(PersonajeRepository):
     def agregar_item(self, id_personaje, nombre_item, cantidad):
         # 1. Si ya lo tiene: $inc sobre ese elemento del arreglo ($ = el que cumplió el filtro)
         # >>> SALA 2.8 · Inventario: agregar un ítem
-        # Arma este bloque en el Edificio de la Persistencia (pestaña Python),
-        # pulsa «Copiar bloque» y pégalo entre estas dos marcas.
-        # <<< FIN SALA 2.8
+        resultado = self._personajes.update_one(
+            {"id_personaje": id_personaje, "inventario.item": nombre_item},
+            {"$inc": {"inventario.$.cantidad": cantidad}})
+        if resultado.matched_count > 0:
+            return True
 
     def quitar_item(self, id_personaje, nombre_item):
         # $pull saca del arreglo los elementos que cumplan la condición

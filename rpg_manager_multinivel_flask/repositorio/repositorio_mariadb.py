@@ -46,9 +46,13 @@ class RepositorioMariaDB(PersonajeRepository):
             mana=fila["mana"], precision=fila["precision_tiro"])
 
     def _consultar_personajes(self, sql, parametros=()):
-        # >>> SALA 2.3 · MariaDB: leer un personaje
-        # Arma este bloque en el Edificio de la Persistencia (pestaña Python),
-        # pulsa «Copiar bloque» y pégalo entre estas dos marcas.
+             # >>> SALA 2.3 · MariaDB: leer un personaje
+        resultado = []
+        with self._conectar() as conexion, conexion.cursor() as cursor:
+            cursor.execute(sql, parametros)
+            for fila in cursor.fetchall():
+                resultado.append(self._fila_a_personaje(fila))
+        return resultado
         # <<< FIN SALA 2.3
 
     def guardar(self, personaje):
@@ -58,9 +62,19 @@ class RepositorioMariaDB(PersonajeRepository):
         valores = (personaje.nombre, self._id_clase[personaje.clase], personaje.nivel,
                    personaje.vida, personaje.ataque, personaje.oro,
                    getattr(personaje, "mana", None), getattr(personaje, "precision", None))
-        # >>> SALA 2.4 · MariaDB: guardar con INSERT
-        # Arma este bloque en el Edificio de la Persistencia (pestaña Python),
-        # pulsa «Copiar bloque» y pégalo entre estas dos marcas.
+            # >>> SALA 2.4 · MariaDB: guardar con INSERT
+        with self._conectar() as conexion:
+            try:
+                with conexion.cursor() as cursor:
+                    cursor.execute(sql, valores)
+                    personaje.id = cursor.lastrowid
+                conexion.commit()
+            except pymysql.err.IntegrityError as error:
+                conexion.rollback()
+                if error.args[0] == ERROR_DUPLICADO:
+                    raise DatoDuplicadoException(personaje.nombre) from error
+                raise
+        return personaje
         # <<< FIN SALA 2.4
 
     def buscar_por_id(self, id):
@@ -97,9 +111,19 @@ class RepositorioMariaDB(PersonajeRepository):
         return filas > 0 or self.buscar_por_id(personaje.id) is not None
 
     def eliminar(self, id):
-        # >>> SALA 2.5 · MariaDB: eliminar y el error 1451
-        # Arma este bloque en el Edificio de la Persistencia (pestaña Python),
-        # pulsa «Copiar bloque» y pégalo entre estas dos marcas.
+               # >>> SALA 2.5 · MariaDB: eliminar y el error 1451
+        with self._conectar() as conexion:
+            try:
+                with conexion.cursor() as cursor:
+                    filas = cursor.execute("DELETE FROM personaje WHERE id_personaje = %s", (id,))
+                conexion.commit()
+            except pymysql.err.IntegrityError as error:
+                conexion.rollback()
+                if error.args[0] == ERROR_FK_EN_USO:
+                    # inventario y personaje_mision se borran en cascada, combate no
+                    raise DatoEnUsoException(id) from error
+                raise
+        return filas > 0
         # <<< FIN SALA 2.5
 
     def listar_inventario(self, id_personaje):
